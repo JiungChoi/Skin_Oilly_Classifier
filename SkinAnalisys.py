@@ -7,6 +7,9 @@ from matplotlib import pyplot as plt
 height = 320 #높이
 width = 320 # 너비
 
+## 유분측정 기준값 (광량)
+LUX_INDEX = 140
+
 
 ## 픽셀단위로 접근
 def pixelDetector(img):
@@ -17,11 +20,33 @@ def pixelDetector(img):
                 cnt += 1
     return cnt
 
-# 명도평준화: ^avr 기준 ^alpha 기울기
-def contrastControlByHistogram(Img, standard, alpha):
+# 명도평준화(단일): ^avr 기준 ^alpha 기울기
+def saturate_contrastA(Img, standard, alpha):
     func = (1+alpha) * Img - (alpha * standard) 
     dst = np.clip(func, 0, 255).astype(np.uint8)
     return dst
+
+# 먕도 평준화(제어)
+def saturate_contrastB(Img, boundary):
+    I = printContrast(Img)
+    
+    Img = Img+(boundary - I)
+    Img = np.clip(Img, 0, 255).astype(np.uint8)
+    # print(f"{I} -> {printContrast(Img)}")
+    return Img
+
+# 이미지 명도 출력
+def printContrast(img):
+    hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+    h, s, v = cv2.split(hsv)
+    
+    sort_v = np.sort(v.flatten())
+    mask = np.where(sort_v!=0)
+
+    mask_sort_v = sort_v[mask]
+
+    cut_v = mask_sort_v[int(width*height*0.05):int(width*height*0.95)]
+    return np.median(cut_v)
 
 def adjust_deadline_value(img, st, end, alpha=0.3):
     img_b, img_g, img_r = cv2.split(img)
@@ -60,12 +85,12 @@ def split_channer(img):
 
     # cv2.destroyWindow(winname)
 
-def output_img_merge_horizon(img_b, img_g, img_r, img):
-    output_img = cv2.hconcat([cv2.hconcat([cv2.hconcat([img_b, img_g]), img_r]) , img])
+def output_img_merge_horizon(img1, img2, img3, img4):
+    output_img = cv2.hconcat([cv2.hconcat([cv2.hconcat([img1, img2]), img3]) , img4])
     return output_img
 
-def output_img_merge_vertical(img_1, img_2, img_3):
-    output_img = cv2.vconcat([cv2.vconcat([img_1, img_2]), img_3])
+def output_img_merge_vertical(img1, img2, img3, img4):
+    output_img = cv2.vconcat([cv2.vconcat([cv2.vconcat([img1, img2]), img3]), img4])
     return output_img
 
 
@@ -127,10 +152,200 @@ def plot_histogram_rgb(img):
 # cv2.destroyWindow(winname) : winname에 해당하는 창을 닫음
 # cv2.resize(img, dsize = (width, height)) : img의 사이즈 변경
 
-oilly_img1 = cv2.imread(f"oilly_model/oilly4.jpg" , cv2.IMREAD_COLOR)
+## 이미지 선언부 : 유분기 4개 건조함 4개로 나눔 ### ### ### ### ### ### ### ### ###
+# 원본이미지
+oilly_imgs = [cv2.imread(f"oilly_model/oilly1.jpg" , cv2.IMREAD_COLOR),
+              cv2.imread(f"oilly_model/oilly2.jpg" , cv2.IMREAD_COLOR),
+              cv2.imread(f"oilly_model/oilly3.jpg" , cv2.IMREAD_COLOR),
+              cv2.imread(f"oilly_model/oilly4.jpg" , cv2.IMREAD_COLOR)]
 
-cv2.imshow("Result", oilly_img1)
+dry_imgs = [cv2.imread(f"oilly_model/dry1.jpg" , cv2.IMREAD_COLOR),
+            cv2.imread(f"oilly_model/dry2.jpg" , cv2.IMREAD_COLOR),
+            cv2.imread(f"oilly_model/dry3.jpg" , cv2.IMREAD_COLOR),
+            cv2.imread(f"oilly_model/dry4.jpg" , cv2.IMREAD_COLOR)]
 
+# 명도 평준화 이미지
+oilly_imgs_saturate = []
+dry_imgs_saturate = []
+
+# 명도 양극화 이미지
+oilly_imgs_polarization = []
+dry_imgs_polarization = []
+
+# 벡터이미지
+oilly_imgs_analysis_vector = []
+dry_imgs_analysis_vector = []
+
+# 벡터이미지 GRAY
+oilly_imgs_analysis_vector_BIN = []
+dry_imgs_analysis_vector_BIN = []
+
+
+## 모든 기준 이미지 평준화 : 기준값 140기준으로 평준화시킴 ### ### ### ### ### ### ### ### ###
+for img in oilly_imgs:
+    oilly_imgs_saturate.append(saturate_contrastB(img, 140))
+    
+for img in dry_imgs:
+    dry_imgs_saturate.append(saturate_contrastB(img, 140))
+
+## 한 이미지 내에서 명도 양극화 : 기준값 128 기준으로 양극화시킴 ### ### ### ### ### ### ### ### ###
+for img in oilly_imgs_saturate:
+    oilly_imgs_polarization.append(saturate_contrastA(img, 128, 0.5))
+    
+for img in dry_imgs_saturate:
+    dry_imgs_polarization.append(saturate_contrastA(img, 128, 0.5))
+
+## 양극화 시킨 이미지 상에서 평균값을 뽑아내어 평균값과 양극화시킨 이미지의 벡터를 구한다 ### ### ### ### ### ### ### ### ###
+for img in oilly_imgs_polarization:
+    output = img
+    for _ in range(5): 
+        output = saturate_contrastB(output, 0)
+    for _ in range(2):
+        output = saturate_contrastA(output, 50, 0.5)
+    oilly_imgs_analysis_vector.append(output)
+    
+for img in dry_imgs_polarization:
+    output = img
+    for _ in range(5): 
+        output = saturate_contrastB(output, 0)
+    for _ in range(2):
+        output = saturate_contrastA(output, 50, 0.5)
+    for _ in range(3): 
+        output = saturate_contrastB(output, 0)
+    for _ in range(2):
+        output = saturate_contrastA(output, 50, 0.5)
+    for _ in range(1): 
+        output = saturate_contrastB(output, 0)
+    for _ in range(2):
+        output = saturate_contrastA(output, 50, 0.5)
+    dry_imgs_analysis_vector.append(output)
+
+## 양극화시킨 벡터 이미지를 이진 이미지로 변환
+for i, img in enumerate(oilly_imgs_analysis_vector):
+    oilly_imgs_analysis_vector_BIN.append(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY))
+    
+for i, img in enumerate(dry_imgs_analysis_vector):
+    dry_imgs_analysis_vector_BIN.append(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY))
+
+## 이미지 출력 :  ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ###
+for i, img in enumerate(oilly_imgs):
+    cv2.imshow(f"Oilly{i+1}", img)
+    
+for i, img in enumerate(dry_imgs):
+    cv2.imshow(f"Dry{i+1}", img)
+
+## 이미지 저장:  ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ###
+for i, img in enumerate(oilly_imgs):
+    cv2.imwrite(f"output_imgs/Oilly{i+1}.jpg", img)
+
+for i, img in enumerate(dry_imgs):
+    cv2.imwrite(f"output_imgs/Dry{i+1}.jpg", img)
+
+## 이미지들 가로로 합침 ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ###
+# 결과 : 원본이미지
+output_img_horizon_oilly = output_img_merge_horizon(cv2.resize(oilly_imgs[0], dsize = (width, height)),
+                cv2.resize(oilly_imgs[1], dsize = (width, height)),
+                cv2.resize(oilly_imgs[2], dsize = (width, height)),
+                cv2.resize(oilly_imgs[3], dsize = (width, height)))
+
+output_img_horizon_dry = output_img_merge_horizon(cv2.resize(dry_imgs[0], dsize = (width, height)),
+                cv2.resize(dry_imgs[1], dsize = (width, height)),
+                cv2.resize(dry_imgs[2], dsize = (width, height)),
+                cv2.resize(dry_imgs[3], dsize = (width, height)))
+
+# # 결과 : 명도 평준화
+# output_img_horizon_oilly_result_1 = output_img_merge_horizon(cv2.resize(oilly_imgs_saturate[0], dsize = (width, height)),
+#                 cv2.resize(oilly_imgs_saturate[1], dsize = (width, height)),
+#                 cv2.resize(oilly_imgs_saturate[2], dsize = (width, height)),
+#                 cv2.resize(oilly_imgs_saturate[3], dsize = (width, height)))
+
+# output_img_horizon_dry_result_1 = output_img_merge_horizon(cv2.resize(dry_imgs_saturate[0], dsize = (width, height)),
+#                 cv2.resize(dry_imgs_saturate[1], dsize = (width, height)),
+#                 cv2.resize(dry_imgs_saturate[2], dsize = (width, height)),
+#                 cv2.resize(dry_imgs_saturate[3], dsize = (width, height)))
+
+# # 결과 : 명도 양극화
+# output_img_horizon_oilly_result_2 = output_img_merge_horizon(cv2.resize(oilly_imgs_polarization[0], dsize = (width, height)),
+#                 cv2.resize(oilly_imgs_polarization[1], dsize = (width, height)),
+#                 cv2.resize(oilly_imgs_polarization[2], dsize = (width, height)),
+#                 cv2.resize(oilly_imgs_polarization[3], dsize = (width, height)))
+
+# output_img_horizon_dry_result_2 = output_img_merge_horizon(cv2.resize(dry_imgs_polarization[0], dsize = (width, height)),
+#                 cv2.resize(dry_imgs_polarization[1], dsize = (width, height)),
+#                 cv2.resize(dry_imgs_polarization[2], dsize = (width, height)),
+#                 cv2.resize(dry_imgs_polarization[3], dsize = (width, height)))
+
+
+# 결과 : 이미지 벡터 분석 
+output_img_horizon_oilly_result_3 = output_img_merge_horizon(cv2.resize(oilly_imgs_analysis_vector[0], dsize = (width, height)),
+                cv2.resize(oilly_imgs_analysis_vector[1], dsize = (width, height)),
+                cv2.resize(oilly_imgs_analysis_vector[2], dsize = (width, height)),
+                cv2.resize(oilly_imgs_analysis_vector[3], dsize = (width, height)))
+
+output_img_horizon_dry_result_3 = output_img_merge_horizon(cv2.resize(dry_imgs_analysis_vector[0], dsize = (width, height)),
+                cv2.resize(dry_imgs_analysis_vector[1], dsize = (width, height)),
+                cv2.resize(dry_imgs_analysis_vector[2], dsize = (width, height)),
+                cv2.resize(dry_imgs_analysis_vector[3], dsize = (width, height)))
+
+# 결과 : 이미지 벡터 분석(이진)
+output_img_horizon_oilly_bin = output_img_merge_horizon(cv2.resize(oilly_imgs_analysis_vector_BIN[0], dsize = (width, height)),
+                cv2.resize(oilly_imgs_analysis_vector_BIN[1], dsize = (width, height)),
+                cv2.resize(oilly_imgs_analysis_vector_BIN[2], dsize = (width, height)),
+                cv2.resize(oilly_imgs_analysis_vector_BIN[3], dsize = (width, height)))
+
+output_img_horizon_dry_bin = output_img_merge_horizon(cv2.resize(dry_imgs_analysis_vector_BIN[0], dsize = (width, height)),
+                cv2.resize(dry_imgs_analysis_vector_BIN[1], dsize = (width, height)),
+                cv2.resize(dry_imgs_analysis_vector_BIN[2], dsize = (width, height)),
+                cv2.resize(dry_imgs_analysis_vector_BIN[3], dsize = (width, height)))
+
+
+# 커팅한 이미지들을 합침 : 수직 
+output_img = output_img_merge_vertical(output_img_horizon_oilly, 
+                                        output_img_horizon_oilly_result_3,
+                                        output_img_horizon_dry,
+                                        output_img_horizon_dry_result_3)
+
+output_img_bin = output_img_merge_vertical(output_img_horizon_oilly, 
+                                        output_img_horizon_oilly_bin,
+                                        output_img_horizon_dry,
+                                        output_img_horizon_dry_bin)
+
+
+
+
+
+
+# 결과 이미지 출력  ### ### ### ### ### ### ### ### ###
+# 
+cv2.imshow("result", output_img)
+cv2.imshow("result2", output_img_bin)
+
+
+'''
+oilly_img2 = contrastControlByHistogram(oilly_img1, LUX_INDEX, 0.3)
+cv2.imshow("Result2", oilly_img2)
+plot_histogram_bin(oilly_img2)
+
+
+oilly_img3 = contrastControlByHistogram(oilly_img1, LUX_INDEX, 0.7)
+cv2.imshow("Result3", oilly_img3)
+plot_histogram_bin(oilly_img3)
+
+
+oilly_img4 = contrastControlByHistogram(oilly_img1, LUX_INDEX, -0.3)
+cv2.imshow("Result4", oilly_img4)
+plot_histogram_bin(oilly_img4)
+
+oilly_img5 = contrastControlByHistogram(oilly_img1, LUX_INDEX, -0.7)
+cv2.imshow("Result5", oilly_img5)
+plot_histogram_bin(oilly_img5)
+
+cv2.imwrite("output.jpg", oilly_img1)
+'''
+
+
+
+'''
 # 1차적으로 명도 차이를 줌 
 contrastControled_img = contrastControlByHistogram(oilly_img1, 128, 0.3)
 cv2.imshow("Result2", contrastControled_img)
@@ -174,16 +389,14 @@ output_img_Analysis_horizon = output_img_merge_horizon(cv2.resize(output_img_Ana
                 cv2.resize(output_img_Analysis_r, dsize = (width, height)),
                 cv2.resize(output_img_Analysis, dsize = (width, height)))
 
-# 커팅한 이미지들을 합침 : 수직
-output_img = output_img_merge_vertical(output_img_horizon1, 
-                                        output_img_horizon2,
-                                        output_img_horizon3)
+
 
 
 cv2.imshow("Output", output_img)
 cv2.imshow("Output2", output_img_Analysis)
-# plot_histogram_bin(output_img_horizon4)
-plot_histogram_rgb(output_img_Analysis)
+plot_histogram_bin(output_img_Analysis)
+'''
+# plot_histogram_rgb(output_img_Analysis)
 cv2.waitKey(0)
 
 '''
